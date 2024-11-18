@@ -1,0 +1,36 @@
+name: release
+
+on:
+  workflow_run:
+    workflows: 
+      - builder
+    types:
+      - completed
+  
+jobs:
+  release:
+    if: |
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download distributables
+        id: download-distributables
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pwt-*
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            pwt-windows-x64.zip
+            pwt-linux-x64.tar.xz
+            pwt-darwin-x64.tar.xz
+            pwt-darwin-arm64.tar.xz
+        
