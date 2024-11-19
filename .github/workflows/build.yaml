@@ -31,7 +31,6 @@ jobs:
         run: |
           npm install "@playwright/test@${{env.PWT_VERSION}}"
           PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium firefox
-          chmod +x node_modules/.bin/*
 
       - name: Get Playwright modules Windows
         if: |
