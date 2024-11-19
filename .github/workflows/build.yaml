@@ -1,0 +1,156 @@
+name: builder
+on:
+  push:
+    branches: [ main ]
+    tags: ['*']        
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  dependencies:
+    env:
+      PWT_VERSION: '1.48.2'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macOS-13, macOS-14, windows-2022, ubuntu-24.04]
+    steps:
+
+      - name: Cache node modules
+        id: dependencies-cache
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ env.PWT_VERSION }}
+
+      - name: Get Playwright modules non Windows
+        if: |
+          runner.os != 'Windows' 
+          && steps.dependencies-cache.outputs.cache-hit != 'true'
+        run: |
+          npm install "@playwright/test@${{env.PWT_VERSION}}"
+          PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium firefox
+          chmod +x node_modules/.bin/*
+
+      - name: Get Playwright modules Windows
+        if: |
+          runner.os == 'Windows'
+          && steps.dependencies-cache.outputs.cache-hit != 'true'
+        run: |
+          npm install "@playwright/test@${{env.PWT_VERSION}}"
+          $env:PLAYWRIGHT_BROWSERS_PATH='0' 
+          npx playwright install chromium firefox
+
+      - name: Upload Playwright modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: deps-${{ runner.os }}-${{ runner.arch }}
+          path: node_modules/*
+          include-hidden-files: true
+  
+  package:
+    env:
+      PWT_VERSION: '1.48.2'
+      NODEJS_VERSION: '20.11.1'
+    runs-on: ubuntu-24.04
+    needs: dependencies
+    strategy:
+      fail-fast: false
+      matrix:
+        pair: [Linux-X64, Windows-X64, macOS-ARM64, macOS-X64]
+    steps:
+
+      - name: Cache for Images
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/containers
+          key: ${{ matrix.pair }}-${{ env.PWT_VERSION }}-${{ env.NODEJS_VERSION }}
+
+      - name: Checkout code
+        if: |
+          runner.os != 'Windows' 
+          && steps.cache-npm.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+
+      - name: Download Playwright Dependencies
+        uses: actions/download-artifact@v4
+        with:
+          name: deps-${{ matrix.pair }}  
+          path: playwright
+
+      - name: Prepare Dependecies for Package
+        run: |
+          cd playwright
+          zip -r ./../dependencies/${{ matrix.pair }}.zip ./
+
+      - name: Package
+        run: |
+          #!/bin/bash
+          set -x
+
+          # Sanitize OS and ARCH
+          OS=""
+          ARCH=""
+          DISTRIB_EXTENSION="tar.xz"
+          case ${{ matrix.pair }} in
+            'Linux-X64')
+              OS=linux 
+              ARCH=x64
+              ;;
+            'Windows-X64')
+              OS=windows 
+              ARCH=x64
+              DISTRIB_EXTENSION="zip"
+              ;;
+            'macOS-ARM64')
+              OS=darwin
+              ARCH=arm64
+              ;;
+            'macOS-X64')
+              OS=darwin 
+              ARCH=x64
+              ;;
+          esac
+          
+          # Build image with root mode to allow mount the image
+          podman build -t quay.io/devtools-qe/pwt:${OS}-${ARCH} \
+            --target ${OS} -f Containerfile \
+            --build-arg=OS=${OS} --build-arg=ARCH=${ARCH} \
+            --build-arg=NODEJS_VERSION=${{ env.NODEJS_VERSION }} .
+
+          # Extract distributable
+          podman run -d --rm -v${PWD}:/data \
+            quay.io/devtools-qe/pwt:${OS}-${ARCH} \
+              cp /dist/pwt-${OS}-${ARCH}.${DISTRIB_EXTENSION} /data
+          podman wait --latest
+
+      - name: Upload pwt Distributable 
+        uses: actions/upload-artifact@v4
+        with:
+          name: pwt-${{ matrix.pair }}
+          path: pwt-*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write #https://github.com/softprops/action-gh-release?tab=readme-ov-file#permissions
+    runs-on: ubuntu-24.04
+    needs: package       
+    steps:
+
+      - name: Download pwt Distributables
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pwt-*  
+          path: dist
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/pwt-Windows-X64/pwt-windows-x64.zip
+            dist/pwt-Linux-X64/pwt-linux-x64.tar.xz
+            dist/pwt-macOS-X64/pwt-darwin-x64.tar.xz
+            dist/pwt-macOS-ARM64/pwt-darwin-arm64.tar.xz
