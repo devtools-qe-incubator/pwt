@@ -8,7 +8,8 @@ RUN microdnf install -y tar xz zip \
     && mkdir -p pwt/.node \
     && mkdir -p pwt/node_modules \
     && mkdir /dist \
-    && unzip /tmp/dependecies.zip -d pwt/node_modules
+    && unzip /tmp/dependecies.zip -d pwt/node_modules \
+    && chmod +x pwt/node_modules/.bin/* 
 
 COPY cli/${OS}/* pwt
 
