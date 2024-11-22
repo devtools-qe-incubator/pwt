@@ -9,7 +9,7 @@ on:
 jobs:
   dependencies:
     env:
-      PWT_VERSION: '1.48.2'
+      PWT_VERSION: '1.49.0'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -50,8 +50,8 @@ jobs:
   
   package:
     env:
-      PWT_VERSION: '1.48.2'
-      NODEJS_VERSION: '20.11.1'
+      PWT_VERSION: '1.49.0'
+      NODEJS_VERSION: '20.18.1'
     runs-on: ubuntu-24.04
     needs: dependencies
     strategy:
